@@ -67,18 +67,9 @@
   </style>
  </head>
  <body>
-<!--  <div style="width:640px;margin:auto;text-align: center;" class="drawborad">
-     <div style="margin:10px;">
-         <canvas id="canvas" width="1200px" height="600px" 
-         style="background-color:lightblue;"></canvas>
-     </div>
-     <input type="button" style="background-color: black">
-     <input type="button" style="background-color: white">
-     <input type="button" style="background-color: grey">
 
- </div> -->
  <div class="xiarihuiban">
-        <canvas id="canvas" width="1200px" height="600px" style="background-color:lightblue;"></canvas>
+        <canvas id="canvas" width="1200px" height="600px" style="background-color:black"></canvas>
         <div class="scalebox">
         	<span>绘板缩放</span>
         	<span>1 x</span>
@@ -99,6 +90,8 @@
       	const ctx = canvas.getContext("2d")  
       	var penColor = 0
       	var currentScale = 1
+      	var scaleTimes = 0
+
 
       	//画笔颜色判断
       	const numberToColor = (number) => {
@@ -112,13 +105,17 @@
 	    	}
       	}
 
-      	// canvas加载刷新,start_i,start_j是不同坐标系下定位的原点的位置,data是数据矩阵
-      	const load = (data,start_i=0,start_j=0) => {
+      	// canvas加载刷新,data是数据矩阵
+      	const load = (data) => {
       		ctx.clearRect(0,0,1200,600)
-			for (var i = start_i; i < 100; i++) {
-			    for (var j = start_j; j < 200; j++) {
+      		if(!nomoving){
+				ctx.scale(currentScale,currentScale)
+      		}
+	    	console.log(currentScale)
+			for (var i = 0; i < 100; i++) {
+			    for (var j = 0; j < 200; j++) {
 			    	numberToColor(Number(data[i][j]))
-			    	ctx.fillRect((j-start_j)*6*currentScale,(i-start_i)*6*currentScale,6*currentScale,6*currentScale)
+			    	ctx.fillRect(j*6,i*6,6,6)
 			    }
 			}
       	}
@@ -126,21 +123,31 @@
 
       	//画笔颜色选择事件
       	$('.colorbox input').click((e)=>{
-      		console.log('获取的笔类型-----'+Number(e.currentTarget.name))
-      		penColor = Number(e.currentTarget.name)
+			console.log('获取的笔类型-----'+Number(e.currentTarget.name))
+  			penColor = Number(e.currentTarget.name)
+
       	})
 
-      	//获取当前矩阵点坐标 (范围为200,100) 且需要输入当前原点坐标
-      	var getCoordinate = (e,zero_x = 0,zero_y=0 ) => {
-      		return {'x':Math.floor(e.offsetX/(6))/currentScale,'y':Math.floor(e.offsetY/(6))/currentScale}
+      	//获取当前矩阵点坐标 (范围为200,100) ,输入放大后单位矩阵点的长度和位移的长度
+      	var getCoordinate = (e) => {
+      		return {'x':Math.floor(e.offsetX/6),'y':Math.floor(e.offsetY/6) }
       	}
 
       	//点击画布事件
       	$('#canvas').click((e) => {
-      		let coordinate = getCoordinate(e)
-      		console.log('click瞬间' + coordinate.x +'-------'+ coordinate.y)
-      		$.post('/paint',{'x':coordinate.x * currentScale ,'y':coordinate.y * currentScale,
-      			'color':penColor})
+      		if(!nomoving){
+	      		let coordinate = getCoordinate(e)
+	      		let clickCurrentScale = scaleTimes===0? 1 : 2*scaleTimes
+	      		let clickTranslate = 0
+	      		console.log('click瞬间' + coordinate.x +'-------'+ coordinate.y)
+	      		console.log('clickCurrentScale: '+clickCurrentScale+ '----scaleTimes: '+scaleTimes)
+
+	      		$.post('/paint',
+	      			{'x':Math.floor(coordinate.x/clickCurrentScale + 0.84*dragtimeX),
+	      			'y':Math.floor(coordinate.y/clickCurrentScale + 0.84*dragtimeY),
+	      			'color':penColor})
+	      		}
+
       	})
 
 
@@ -152,139 +159,123 @@
       		console.log('滚轮滑动的这个点的坐标---'+ coordinate.x +'----'+ coordinate.y)
       		if(e.deltaY < 0){
       			console.log('放大')
-      			if(currentScale >= 2){
+      			if(scaleTimes >= 2){
       				return
       			}
-      			currentScale = 3
+      			currentScale = 2
+      			scaleTimes++
       			$.get('/board',function(result){
-      				load(result.split('\n'),
-      					Math.floor(coordinate.y - coordinate.y/currentScale),
-      					Math.floor(coordinate.x - coordinate.x/currentScale)
-      					)
-      				// console.log(Math.floor(coordinate.y - coordinate.y/currentScale),Math.floor(coordinate.x - coordinate.x/currentScale))
+      				ctx.clearRect(0,0,1200,600)
+      				ctx.translate(0,0)
+      				load(result.split('\n'))
 
       			})
 
       		}else if(e.deltaY > 0){
       			console.log('缩小')
-      			if(currentScale <=1){
-      				return false
+
+      			if(scaleTimes <= 0){
+      				currentScale = 1
+
+      				return
       			}
-      			currentScale = 1
+  				currentScale = 0.5
+  				scaleTimes--
+
       			$.get('/board',function(result){
-      				// myMatrix = result.split('\n')
+      				ctx.clearRect(0,0,1200,600)
       				load(result.split('\n'))
-      				
       			})
       		}else{
       			return
       		}
-      		$('.scalebox span:eq(1)').text(currentScale+' x')
+
+      		$('.scalebox span:eq(1)').text(scaleTimes + 1 +' x')
       	}, false)
+
+
+      	//画布拖动事件
+
+      	var dragtimeX = 0
+      	var dragtimeY = 0
+      	var mouseflag = false
+      	var nomoving = false
+      	var dragstart = {}
+      	$('#canvas').on('mousedown',(e)=>{
+      		console.log(e) 
+      		mouseflag = true
+      		dragstart = {'x':e.offsetX ,'y':e.offsetY}
+      	})
+      	$('#canvas').on('mousemove',(e)=>{
+      		if(mouseflag){
+      			nomoving = true
+
+	      			if (scaleTimes !== 0 ) { 
+		      			let drag_offset_x = e.offsetX - dragstart.x
+		      			let drag_offset_y = e.offsetY - dragstart.y
+
+		      			if( Math.abs(drag_offset_x)>20){
+
+		      				$.get('/board',function(result){
+		  					ctx.clearRect(0,0,1200,600)
+		  					if(drag_offset_x > 0){
+								ctx.translate(5,0)
+		  						dragtimeX--
+		  					}else{
+								ctx.translate(-5,0)  
+								dragtimeX++
+		  					}
+		  					load(result.split('\n'))
+		      			})
+		      			}
+		      			if(Math.abs(drag_offset_y)>20){
+
+		      				$.get('/board',function(result){
+		  					ctx.clearRect(0,0,1200,600)
+		  					if(drag_offset_y > 0){
+								ctx.translate(0,5)  
+		  						dragtimeY--
+		  					}else{
+								ctx.translate(0,-5)  
+		  						dragtimeY++
+		  					}
+		  					load(result.split('\n'))
+		      			})
+		      			}
+
+	      			}
+
+      			}
+      		})
+      	$('#canvas').on('mouseup',(e)=>{
+      			mouseflag = false
+
+      			setTimeout(()=>{
+      				nomoving = false
+      				console.log('nomovingstate:'+nomoving)
+      			},10)
+      		})
+
 
 
       	//socket交流
      	const socket = io.connect('http://localhost:3003');
       	socket.on('news', (data) => {
             load(data.matrix)
-            // socket.emit('my other event', { my: 'data' });
       	});
       	socket.on('matrix_update', (data) => {
       		if(data){
     			numberToColor(data['color'])
-    			ctx.fillRect(data['x']*6,data['y']*6,(6*currentScale),(6*currentScale))
+    			ctx.fillRect(data['x']*6,data['y']*6,6,6)
       		}
       		console.log('来自服务器的matrix_update---' + data['x'] +'-----' +data['y'] +'-----' + data['color'])
       	})
+
+
+      	//可能bug挺多，对不起。
     </script>
 
 
 
-
-
-
-
-<!--     <script>
-        //插件方法封装区
-        ;(function(){            
-	        // 事件绑定            
-	        window.bindHandler = (function() {                
-	            if (window.addEventListener) {// 标准浏览器
-	                    return function(elem, type, handler) {                        
-	                    // elem:节点    type:事件类型   handler:事件处理函数
-	                    // 最后一个参数为true:在捕获阶段调用事件处理程序;
-	                    //为false:在冒泡阶段调用事件处理程序。
-	                    //注意：ie没有这个参数                        
-	                    elem.addEventListener(type, handler, false)
-	                    }
-	                } else if (window.attachEvent) {// IE浏览器
-	                    return function(elem, type, handler) {
-	                        elem.attachEvent("on" + type, handler)
-	                    }
-	                }
-	            }());            
-            // 事件解除           
-            window.removeHandler = (function() {                
-                if (window.removeEventListener) {// 标准浏览器
-                    return function(elem, type, handler) {
-                        elem.removeEventListener(type, handler, false)
-                    }
-                } else if (window.detachEvent) {// IE浏览器
-                    return function(elem, type, handler) {
-                        elem.detachEvent("on" + type, handler)
-                    }
-                }
-            }())
-        }())        //命名区
- 
-
-		var stopBubble = (e) => { //阻止事件冒泡和默认行为的完整兼容性代码
-		    e = e || window.event;
-		    if (e.stopPropagation) { //这是取消冒泡
-		        e.stopPropagation();
-		    } else{
-		        e.cancelBubble = true;
-		    };
-		    if (e.preventDefault) {//这是取消默认行为，要弄清楚取消默认行为和冒泡不是一回事
-		        e.preventDefault();
-		    } else{
-		        e.returnValue = false;
-		    };
-		}
-
-
-
-
-        var canvas2 = document.getElementById("canvas2")      
-        var context2 = canvas2.getContext("2d")    
-     
-        var draw = (e) => {//写字           
-        context2.fillRect(e.offsetX,e.offsetY,10,10);  
-    };        //功能实现区
- 		
- 		var scroll = (e) => {
- 			stopBubble(e)
- 		}
-    
-        // //画笔       
-        // //1. 为canvas元素onmousedown和onmouseup事件以及onclick事件       
-        // canvas2.onmousedown = function(){     
-        // // 启用画笔功能 - 绑定鼠标跟随事件            
-        // bindHandler(canvas2,'mousemove',draw,false);
-        // }
-
-        // canvas2.onmouseup = function(){            
-        // // 停止画笔功能 - 解绑鼠标跟随事件            
-        // removeHandler(canvas2,"mousemove",draw,false);
-        // }    
-
-        canvas2.onclick = () => {     
-        // 启用画笔功能 - 绑定鼠标点击事件            
-        bindHandler(canvas2,'click',draw,false)
-        }
-        canvas2.onmousewheel = (e) => {
-        bindHandler(canvas2,'mousewheel',scroll,false)
-        }
-    </script> -->
  </body>
  </html>
